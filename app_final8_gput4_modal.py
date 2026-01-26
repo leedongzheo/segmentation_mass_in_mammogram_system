@@ -12,7 +12,7 @@ import json
 # 0. CẤU HÌNH
 # ==============================================================================
 # Thay bằng URL thật của bạn
-MODAL_API_URL = "https://teddy2003--mammogram-ensemble-backend-api-inference.modal.run"
+MODAL_API_URL = "https://luanken586--mammogram-ensemble-backend-api-inference.modal.run"
 NORM_MEAN = [0.2512, 0.2741, 0.1900]
 NORM_STD = [0.2775, 0.2605, 0.2203]
 # ==============================================================================
@@ -317,4 +317,5 @@ if img_file:
             - Channel 0: Grayscale Original
             - Channel 1: CLAHE Enhanced
             - Channel 2: Combo (Gamma + CLAHE)
+
             """, language="text")
