@@ -268,3 +268,4 @@ if img_file:
             st.write(f"- **Kích thước gốc:** {st.session_state.original_shape}")
             st.write(f"- **Kích thước đầu vào Model:** {input_img_1ch.shape} (Resize về 640x640)")
             st.write("- **Chế độ:** Ảnh xám 3 kênh (R=G=B)")
+
