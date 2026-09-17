@@ -894,63 +894,91 @@ with tab_batch:
                                        st.session_state.export_zip,
                                        file_name="ket_qua_mammogram.zip", mime="application/zip")
 
-            # ---------- XEM CHI TIẾT 1 ẢNH ----------
+            # ---------- KẾT QUẢ TỪNG ẢNH (layout giống tab Ảnh đơn) ----------
             st.divider()
-            st.subheader("🔍 Xem chi tiết")
+            st.subheader("🖼️ Kết quả từng ảnh")
             ok_meta = [m for m in meta if m['status'] == 'ok']
-            if ok_meta:
-                names = [f"{m['idx']:04d} — {m['name']}" for m in ok_meta]
-                sel = st.selectbox("Chọn ảnh:", names)
-                sel_idx = int(sel.split(' — ')[0])
-                input_img, gt, prob, pred = load_item(run_dir, sel_idx, pixel_thresh, min_area)
-                if input_img is not None and pred is not None:
-                    disp = pick_channel(input_img, view_mode)
-                    if gt is not None:
-                        d, j = calculate_metrics(gt, pred)
-                        st.markdown(f"**Dice: {d:.4f} | IoU: {j:.4f}**")
-                        c1, c2, c3 = st.columns(3)
-                        with c1: st.image(disp, caption=f"Input ({view_mode})", use_container_width=True)
-                        with c2: st.image(gt * 255, caption="Ground Truth", use_container_width=True)
-                        with c3: st.image(create_result_overlay(disp, gt, pred),
-                                          caption="So sánh (🟡TP 🟢FN 🔴FP)", use_container_width=True)
+
+            if not ok_meta:
+                st.info("Chưa có ảnh nào xử lý thành công.")
+            else:
+                f1, f2, f3 = st.columns([1, 2, 1.5])
+                with f1:
+                    per_page = st.selectbox("Ảnh mỗi trang", [3, 5, 10, 20, 50], index=1)
+                with f2:
+                    sort_mode = st.radio("Sắp xếp:",
+                                         ("Theo thứ tự", "Dice thấp → cao", "Dice cao → thấp"),
+                                         horizontal=True)
+                with f3:
+                    kw = st.text_input("Lọc theo tên ảnh", placeholder="VD: MLO, BENIGN...")
+
+                view_meta = [m for m in ok_meta if kw.strip().lower() in m['name'].lower()] \
+                            if kw.strip() else list(ok_meta)
+
+                if sort_mode != "Theo thứ tự" and len(dice_col):
+                    dmap = {r['Ảnh']: r['Dice'] for _, r in df.iterrows()}
+                    def _key(m):
+                        v = dmap.get(m['name'], np.nan)
+                        return float(v) if pd.notna(v) else 9.0   # ảnh không có GT xếp cuối
+                    view_meta.sort(key=_key, reverse=(sort_mode == "Dice cao → thấp"))
+
+                if not view_meta:
+                    st.info("Không có ảnh nào khớp từ khóa.")
+                else:
+                    total_pages = max(1, (len(view_meta) + per_page - 1) // per_page)
+                    if total_pages > 1:
+                        page = st.number_input(f"Trang (tổng {total_pages} trang, "
+                                               f"{len(view_meta)} ảnh)", 1, total_pages, 1)
                     else:
-                        c1, c2, c3 = st.columns(3)
-                        with c1: st.image(disp, caption=f"Input ({view_mode})", use_container_width=True)
-                        with c2: st.image(prob, caption="Probability map", use_container_width=True)
-                        with c3: st.image(create_result_overlay(disp, None, pred),
-                                          caption="Dự đoán", use_container_width=True)
+                        page = 1
+                    page_items = view_meta[(page - 1) * per_page: page * per_page]
 
-            # ---------- LƯỚI ẢNH ----------
-            st.divider()
-            st.subheader("🖼️ Xem nhanh toàn bộ")
-            g1, g2 = st.columns([1, 2])
-            with g1:
-                per_page = st.selectbox("Ảnh mỗi trang", [8, 12, 20, 40], index=1)
-            sort_mode = g2.radio("Sắp xếp:", ("Theo thứ tự", "Dice thấp → cao", "Dice cao → thấp"),
-                                 horizontal=True)
+                    st.info("""
+                        **Giải thích màu Overlay:**
+                        - 🟡 **Vàng (TP):** Model dự đoán đúng.
+                        - 🟢 **Xanh lá (FN):** Vùng khối u thực tế bị model bỏ sót.
+                        - 🔴 **Đỏ (FP):** Vùng model dự đoán sai (Dương tính giả).
+                        """)
 
-            view_meta = list(ok_meta)
-            if sort_mode != "Theo thứ tự" and len(dice_col):
-                dmap = {r['Ảnh']: r['Dice'] for _, r in df.iterrows()}
-                view_meta.sort(key=lambda m: (dmap.get(m['name']) if pd.notna(dmap.get(m['name'], np.nan)) else 9),
-                               reverse=(sort_mode == "Dice cao → thấp"))
+                    for m in page_items:
+                        input_img, gt, prob, pred = load_item(run_dir, m['idx'],
+                                                             pixel_thresh, min_area)
+                        if input_img is None or pred is None:
+                            st.warning(f"⚠️ `{m['name']}`: không đọc được kết quả.")
+                            continue
+                        disp = pick_channel(input_img, view_mode)
 
-            total_pages = max(1, (len(view_meta) + per_page - 1) // per_page)
-            page = st.number_input("Trang", 1, total_pages, 1) if total_pages > 1 else 1
-            page_items = view_meta[(page - 1) * per_page: page * per_page]
+                        if gt is not None:
+                            d, j = calculate_metrics(gt, pred)
+                            st.markdown(f"### 📊 Dice: **{d:.4f}** | IoU: **{j:.4f}** "
+                                        f"&nbsp;&nbsp;`{m['name']}`")
+                            c1, c2, c3 = st.columns(3)
+                            with c1:
+                                st.image(disp, caption=f"Input ({view_mode})",
+                                         use_container_width=True)
+                            with c2:
+                                st.image(gt * 255, caption="Ground Truth (Đã Crop)",
+                                         use_container_width=True)
+                            with c3:
+                                st.image(create_result_overlay(disp, gt, pred),
+                                         caption="So sánh", use_container_width=True)
+                        else:
+                            st.markdown(f"### 🖼️ Chế độ Dự đoán &nbsp;&nbsp;`{m['name']}`")
+                            c1, c2, c3 = st.columns(3)
+                            with c1:
+                                st.image(disp, caption=f"Input ({view_mode})",
+                                         use_container_width=True)
+                            with c2:
+                                st.image(prob, caption="Probability map",
+                                         use_container_width=True)
+                            with c3:
+                                st.image(create_result_overlay(disp, None, pred),
+                                         caption="Dự đoán", use_container_width=True)
 
-            cols = st.columns(4)
-            for n, m in enumerate(page_items):
-                input_img, gt, prob, pred = load_item(run_dir, m['idx'], pixel_thresh, min_area)
-                if input_img is None or pred is None: continue
-                disp = pick_channel(input_img, view_mode)
-                ov = create_result_overlay(disp, gt, pred)
-                cap = m['name']
-                if gt is not None:
-                    d, _ = calculate_metrics(gt, pred)
-                    cap = f"{m['name']} — Dice {d:.3f}"
-                with cols[n % 4]:
-                    st.image(ov, caption=cap, use_container_width=True)
+                        if m.get('note'):
+                            st.caption(f"⚠️ {m['note']}")
+                        st.divider()
+
 
 # __________________________________________GD NEW________________________________________________________________
 # import streamlit as st
